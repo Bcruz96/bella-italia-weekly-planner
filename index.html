@@ -16,66 +16,64 @@
 
     <div class="brand-text">
       <h1>Bella Italia</h1>
-      <p>WEEKLY PLANNER</p>
+      <p>Weekly Planner</p>
     </div>
 
-    <div class="branch-box">BI WELLINGTON STREET</div>
+    <span class="branch-box">BI Wellington Street</span>
   </div>
 
   <div class="sync-status">
-  <span></span>
-  Live sign
-</div>
+    <span></span>
+    Live sync
+  </div>
 </header>
 
   <main class="container">
 
     <section class="week-selector">
-      <button class="arrow-button" id="previousDay">‹</button>
+      <button class="arrow-button" id="previousDay" aria-label="Previous day">‹</button>
 
       <div class="days" id="daysContainer">
         <!-- Days will be created with JavaScript -->
       </div>
 
-      <button class="arrow-button" id="nextDay">›</button>
+      <button class="arrow-button" id="nextDay" aria-label="Next day">›</button>
     </section>
 
-    
-
-    <section class="today-row">
-  <button type="button" id="todayButton" class="today-button">Today</button>
-</section>
-
-<section class="date-navigation">
-  <button type="button" id="previousLabel">← Previous week</button>
-
-  <h2 id="monthTitle">May 2026</h2>
-
-  <button type="button" id="nextLabel">Next week →</button>
-</section>
-
-<section class="day-card" id="dayCard">
-  <p id="selectedDayName">MONDAY</p>
-  <h2 id="selectedDayNumber">11</h2>
-  <span id="selectedMonth">May 2026</span>
-</section>
-
-<button class="add-task-button" id="openTaskModal">
-  + Add extra task for this day
-</button>
-
-    <section class="progress-section">
-      <div class="progress-header">
-        <div class="calendar-icon">▦</div>
-
-        <div>
-          <h2 id="checklistTitle">Monday Checklist</h2>
-          <p id="progressText">0/0 tasks completed</p>
+    <section class="day-context" id="dayCard">
+      <div class="day-context-toolbar">
+        <div class="week-nav">
+          <button type="button" id="previousLabel">← Previous week</button>
+          <h2 id="monthTitle">May 2026</h2>
+          <button type="button" id="nextLabel">Next week →</button>
         </div>
+
+        <button type="button" id="todayButton" class="today-button">Today</button>
       </div>
 
-      <div class="progress-bar">
-        <div class="progress-fill" id="progressFill"></div>
+      <div class="day-context-body">
+        <div class="day-context-date">
+          <p id="selectedDayName">MONDAY</p>
+          <div class="day-context-date-row">
+            <h2 id="selectedDayNumber">11</h2>
+            <span id="selectedMonth">May 2026</span>
+          </div>
+        </div>
+
+        <div class="day-context-progress">
+          <div class="progress-labels">
+            <h2 id="checklistTitle">Monday Checklist</h2>
+            <p id="progressText">0/0 tasks completed</p>
+          </div>
+
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+        </div>
+
+        <button type="button" class="add-task-button" id="openTaskModal">
+          + Add task
+        </button>
       </div>
     </section>
 
@@ -90,10 +88,10 @@
       <h2>Add New Task</h2>
 
       <form id="taskForm">
-        <input 
-          type="text" 
-          id="taskTitle" 
-          placeholder="Task name" 
+        <input
+          type="text"
+          id="taskTitle"
+          placeholder="Task name"
           required
         />
 
