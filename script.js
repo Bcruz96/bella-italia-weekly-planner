@@ -322,7 +322,7 @@ const fixedTasks = [
   title: "Brakes order for Friday before 11am",
   day: "Wednesday",
   category: "Weekly Tasks"
-},,
+},
 
 {
   id: "thu-weekly-1",
@@ -374,6 +374,24 @@ const fixedTasks = [
   category: "Weekly Tasks"
 }
 ];
+
+const stockCountingTask = {
+  id: "sunday-month-end-stock-counting",
+  title: "Stock Counting",
+  day: "Sunday",
+  category: "Monthly Tasks"
+};
+
+function isLastSundayOfMonth(date) {
+  if (date.getDay() !== 0) {
+    return false;
+  }
+
+  const nextWeek = new Date(date);
+  nextWeek.setDate(date.getDate() + 7);
+
+  return nextWeek.getMonth() !== date.getMonth();
+}
 
 let fixedTaskCompletion = {};
 let manualTasks = [];
@@ -586,19 +604,24 @@ dayCard.classList.add("active-dark");
 
 function getTasksForSelectedDay() {
   const selectedDay = dayNames[selectedDayIndex];
+  const selectedDate = getDateForDay(selectedDayIndex);
   const selectedDateKey = getSelectedDateKey();
 
-  const fixedForDay = fixedTasks
-    .filter((task) => task.day === selectedDay)
-    .map((task) => {
-  const completionKey = `${selectedDateKey}|${task.id}`;
+  const applicableFixedTasks = fixedTasks.filter((task) => task.day === selectedDay);
 
-      return {
-        ...task,
-        isFixed: true,
-        completed: fixedTaskCompletion[completionKey] || false
-      };
-    });
+  if (isLastSundayOfMonth(selectedDate)) {
+    applicableFixedTasks.push(stockCountingTask);
+  }
+
+  const fixedForDay = applicableFixedTasks.map((task) => {
+    const completionKey = `${selectedDateKey}|${task.id}`;
+
+    return {
+      ...task,
+      isFixed: true,
+      completed: fixedTaskCompletion[completionKey] || false
+    };
+  });
 
   const manualForDay = manualTasks
     .filter((task) => task.dateKey === selectedDateKey)
@@ -667,9 +690,6 @@ function renderTaskGroups() {
     const headerClass = groupIsComplete
     ? "task-group-header completed"
     : "task-group-header danger";
-    const headerStyle = groupIsComplete
-    ? 'style="background: linear-gradient(145deg, #1f7a68 0%, #166b59 50%, #0f4f43 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), inset 0 -10px 18px rgba(0,0,0,0.08), 0 10px 22px rgba(22,107,89,0.16);"'
-   : "";
 
     groupElement.innerHTML = `
     <div class="${headerClass}">

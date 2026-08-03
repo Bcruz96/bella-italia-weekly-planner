@@ -605,6 +605,7 @@ body {
 }
 
 .task-title {
+  max-width: 72ch;
   color: var(--text-dark);
   font-size: 16px;
   font-weight: 500;
@@ -765,35 +766,6 @@ select:focus {
 
 .modal-actions button:last-child:hover {
   background: var(--green-dark);
-}
-
-/* =========================================================
-   Desktop: use the extra width intentionally —
-   lay task categories out in two columns rather than
-   stretching a single narrow list. A group that ends up
-   alone in the final row (including a day with only one
-   group total) spans the full width instead of being
-   stranded in the left column.
-   ========================================================= */
-@media (min-width: 860px) {
-  #taskGroups {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    align-items: start;
-    gap: 16px;
-  }
-
-  #taskGroups .task-group {
-    margin-bottom: 0;
-  }
-
-  #taskGroups .task-group:last-child:nth-child(odd) {
-    grid-column: 1 / -1;
-  }
-
-  #taskGroups .empty-message {
-    grid-column: 1 / -1;
-  }
 }
 
 /* =========================================================
