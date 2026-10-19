@@ -29,6 +29,7 @@
 </header>
 
   <main class="container">
+    <p id="appMessage" class="app-message" role="alert" hidden></p>
 
     <section class="week-selector">
       <button class="arrow-button" id="previousDay" aria-label="Previous day">‹</button>
@@ -84,18 +85,21 @@
   </main>
 
   <div class="modal" id="taskModal">
-    <div class="modal-content">
-      <h2>Add New Task</h2>
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h2 id="modalTitle">Add a task</h2>
+      <p class="modal-description">Plan something for your selected week.</p>
 
       <form id="taskForm">
+        <label class="field-label" for="taskTitle">Task name</label>
         <input
           type="text"
-          id="taskTitle"
+          id="taskTitle" aria-label="Task name"
           placeholder="Task name"
           required
         />
 
-        <select id="taskDay" required>
+        <label class="field-label" for="taskDay">Day</label>
+        <select id="taskDay" aria-label="Task day" required>
           <option value="">Choose day</option>
           <option value="Monday">Monday</option>
           <option value="Tuesday">Tuesday</option>
@@ -106,7 +110,8 @@
           <option value="Sunday">Sunday</option>
         </select>
 
-        <select id="taskCategory" required>
+        <label class="field-label" for="taskCategory">Category</label>
+        <select id="taskCategory" aria-label="Task category" required>
           <option value="">Choose category</option>
           <option value="Payroll Checks">Payroll Checks</option>
           <option value="Orders">Orders</option>

@@ -3,23 +3,7 @@ const SUPABASE_KEY = "sb_publishable_9_pd1IQnNYYRzDFT-TLJ_A_xWVzSxHr";
 
 const database = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-console.log("Supabase conectado:", database);
 const RESTAURANT_ID = "bi-wellington-street";
-async function testSupabaseConnection() {
-  const { data, error } = await database
-    .from("manual_tasks")
-    .select("*")
-    .limit(1);
-
-  if (error) {
-    console.error("Erro no Supabase:", error);
-    return;
-  }
-
-  console.log("Teste Supabase OK:", data);
-}
-
-testSupabaseConnection();
 const daysContainer = document.getElementById("daysContainer");
 const previousDayButton = document.getElementById("previousDay");
 const nextDayButton = document.getElementById("nextDay");
@@ -396,48 +380,64 @@ function isLastSundayOfMonth(date) {
 let fixedTaskCompletion = {};
 let manualTasks = [];
 
+let dataBusy = false;
+let dataLoaded = false;
+let submittingTask = false;
+const syncStatus = document.getElementById("syncStatus");
+const syncText = document.getElementById("syncText");
+const appMessage = document.getElementById("appMessage");
+const saveTaskButton = taskForm.querySelector('[type="submit"]');
+function setSyncStatus(state, message) {
+  syncStatus.dataset.state = state;
+  syncText.textContent = message;
+}
+function showError(message) {
+  appMessage.textContent = message;
+  appMessage.hidden = false;
+  setSyncStatus("error", navigator.onLine === false ? "Offline" : "Sync error");
+}
+function renderBusyState() {
+  taskGroups.querySelectorAll("button").forEach(button => { button.disabled = dataBusy || !dataLoaded; });
+  saveTaskButton.disabled = dataBusy || !dataLoaded;
+  saveTaskButton.textContent = submittingTask ? "Saving..." : "Save Task";
+}
 async function loadDataFromSupabase() {
-  const { data: completionData, error: completionError } = await database
-    .from("fixed_task_completion")
-    .select("*")
-    .eq("restaurant_id", RESTAURANT_ID);
-
-  if (completionError) {
-    console.error("Error loading fixed task completion:", completionError);
-  } else {
-    fixedTaskCompletion = {};
-
-    completionData.forEach((item) => {
-      const completionKey = `${item.date_key}|${item.task_id}`;
-      fixedTaskCompletion[completionKey] = item.completed;
-    });
+  const results = await Promise.all([
+    database.from("fixed_task_completion").select("*").eq("restaurant_id", RESTAURANT_ID),
+    database.from("manual_tasks").select("*").eq("restaurant_id", RESTAURANT_ID)
+  ]);
+  for (const result of results) if (result.error) throw result.error;
+  const nextCompletion = {};
+  results[0].data.forEach(item => { nextCompletion[item.date_key + "|" + item.task_id] = item.completed; });
+  fixedTaskCompletion = nextCompletion;
+  manualTasks = results[1].data.map(task => ({
+    id: task.id, title: task.title, day: task.day, dateKey: task.date_key,
+    category: task.category, completed: task.completed
+  }));
+  dataLoaded = true;
+}
+async function runDataOperation(operation, saving = false) {
+  if (dataBusy) return false;
+  dataBusy = true;
+  setSyncStatus("busy", saving ? "Saving..." : "Syncing...");
+  renderBusyState();
+  try {
+    await operation();
+    appMessage.hidden = true;
+    setSyncStatus("synced", "Synced");
+    return true;
+  } catch (error) {
+    console.error("Data operation failed:", error);
+    showError(saving ? "Could not save the change. Check your connection and try again."
+      : "Could not load the latest tasks. Sync will retry automatically.");
+    return false;
+  } finally {
+    dataBusy = false;
+    renderApp();
   }
-
-  const { data: manualData, error: manualError } = await database
-    .from("manual_tasks")
-    .select("*")
-    .eq("restaurant_id", RESTAURANT_ID);
-
-  if (manualError) {
-    console.error("Error loading manual tasks:", manualError);
-  } else {
-    manualTasks = manualData.map((task) => {
-      return {
-        id: task.id,
-        title: task.title,
-        day: task.day,
-        dateKey: task.date_key,
-        category: task.category,
-        completed: task.completed
-      };
-    });
-  }
-
-  renderApp();
 }
 
-async function saveFixedCompletion(taskId, completed) {
-  const selectedDateKey = getSelectedDateKey();
+async function saveFixedCompletion(taskId, completed, selectedDateKey) {
 
   const { error } = await database
     .from("fixed_task_completion")
@@ -454,7 +454,7 @@ async function saveFixedCompletion(taskId, completed) {
     );
 
   if (error) {
-    console.error("Error saving fixed task completion:", error);
+    throw error;
   }
 }
 
@@ -473,8 +473,7 @@ async function addManualTaskOnline(newTask) {
     .single();
 
   if (error) {
-    console.error("Error adding manual task:", error);
-    return null;
+    throw error;
   }
 
   return {
@@ -492,10 +491,10 @@ async function updateManualTaskOnline(taskId, completed) {
     .from("manual_tasks")
     .update({ completed: completed })
     .eq("restaurant_id", RESTAURANT_ID)
-    .eq("id", taskId);
+    .eq("id", taskId).select("id").single();
 
   if (error) {
-    console.error("Error updating manual task:", error);
+    throw error;
   }
 }
 
@@ -504,10 +503,10 @@ async function deleteManualTaskOnline(taskId) {
     .from("manual_tasks")
     .delete()
     .eq("restaurant_id", RESTAURANT_ID)
-    .eq("id", taskId);
+    .eq("id", taskId).select("id").single();
 
   if (error) {
-    console.error("Error deleting manual task:", error);
+    throw error;
   }
 }
 
@@ -549,7 +548,9 @@ function renderDays() {
   dayNames.forEach((day, index) => {
     const date = getDateForDay(index);
 
-    const dayElement = document.createElement("div");
+    const dayElement = document.createElement("button");
+    dayElement.type = "button";
+    dayElement.setAttribute("aria-pressed", String(index === selectedDayIndex));
     dayElement.classList.add("day-item");
 
     if (index === selectedDayIndex) {
@@ -599,7 +600,7 @@ nextLabel.textContent = "Next week →";
 
 dayCard.classList.add("active-dark");
 
-  taskDay.value = currentDay;
+  if (!taskModal.classList.contains("show")) taskDay.value = currentDay;
 }
 
 function getTasksForSelectedDay() {
@@ -646,7 +647,7 @@ function updateProgress(dayTasks) {
 }
 
 function groupTasksByCategory(dayTasks) {
-  const groups = {};
+  const groups = Object.create(null);
 
   dayTasks.forEach((task) => {
     if (!groups[task.category]) {
@@ -693,7 +694,7 @@ function renderTaskGroups() {
 
     groupElement.innerHTML = `
     <div class="${headerClass}">
-        <h3>${category}</h3>
+        <h3></h3>
 
         <div class="group-progress">
           <div class="group-progress-bar">
@@ -705,6 +706,7 @@ function renderTaskGroups() {
       </div>
     `;
 
+    groupElement.querySelector("h3").textContent = category;
     group.forEach((task) => {
       const taskElement = document.createElement("div");
       taskElement.classList.add("task-item");
@@ -713,24 +715,28 @@ function renderTaskGroups() {
         taskElement.classList.add("completed");
       }
 
-const deleteButton = task.isFixed === false
-  ? `<button type="button" class="delete-task" onclick="deleteTask('${task.id}')">×</button>`
-  : "";
-
-taskElement.innerHTML = `
-  <button 
-    type="button" 
-    class="task-check" 
-    onclick="toggleTask('${task.id}', ${task.isFixed === true})">
-  </button>
-
-  <div class="task-info">
-    <div class="task-title">${task.title}</div>
-  </div>
-
-  ${deleteButton}
-`;
-
+      const check = document.createElement("button");
+      check.type = "button";
+      check.className = "task-check";
+      check.setAttribute("aria-label", "Complete task: " + task.title);
+      check.setAttribute("aria-pressed", String(Boolean(task.completed)));
+      check.addEventListener("click", () => toggleTask(task.id, task.isFixed));
+      const info = document.createElement("div");
+      info.className = "task-info";
+      const title = document.createElement("div");
+      title.className = "task-title";
+      title.textContent = task.title;
+      info.appendChild(title);
+      taskElement.append(check, info);
+      if (!task.isFixed) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "delete-task";
+        remove.textContent = "\u00d7";
+        remove.setAttribute("aria-label", "Delete task: " + task.title);
+        remove.addEventListener("click", () => deleteTask(task.id));
+        taskElement.appendChild(remove);
+      }
       groupElement.appendChild(taskElement);
     });
 
@@ -739,86 +745,75 @@ taskElement.innerHTML = `
 }
 
 async function toggleTask(taskId, isFixed) {
-  if (isFixed === true) {
-    const selectedDateKey = getSelectedDateKey();
-    const completionKey = `${selectedDateKey}|${taskId}`;
-    const newCompletedValue = !fixedTaskCompletion[completionKey];
-
-    fixedTaskCompletion[completionKey] = newCompletedValue;
-
-    renderApp();
-
-    await saveFixedCompletion(taskId, newCompletedValue);
-  } else {
-    let newCompletedValue = false;
-
-    manualTasks = manualTasks.map((task) => {
-      if (String(task.id) === String(taskId)) {
-        newCompletedValue = !task.completed;
-
-        return {
-          ...task,
-          completed: newCompletedValue
-        };
-      }
-
-      return task;
-    });
-
-    renderApp();
-
-    await updateManualTaskOnline(taskId, newCompletedValue);
-  }
+  if (dataBusy || !dataLoaded) return;
+  const dateKey = getSelectedDateKey();
+  const key = dateKey + "|" + taskId;
+  const task = manualTasks.find(item => String(item.id) === String(taskId));
+  if (!isFixed && !task) return;
+  const completed = isFixed ? !fixedTaskCompletion[key] : !task.completed;
+  await runDataOperation(async () => {
+    if (isFixed) {
+      await saveFixedCompletion(taskId, completed, dateKey);
+      fixedTaskCompletion[key] = completed;
+    } else {
+      await updateManualTaskOnline(taskId, completed);
+      task.completed = completed;
+    }
+  }, true);
 }
-
 async function deleteTask(taskId) {
-  const confirmDelete = confirm("Delete this manual task?");
-
-  if (!confirmDelete) {
-    return;
-  }
-
-  manualTasks = manualTasks.filter((task) => String(task.id) !== String(taskId));
-
-  renderApp();
-
-  await deleteManualTaskOnline(taskId);
+  if (dataBusy || !dataLoaded || !confirm("Delete this manual task?")) return;
+  await runDataOperation(async () => {
+    await deleteManualTaskOnline(taskId);
+    manualTasks = manualTasks.filter(task => String(task.id) !== String(taskId));
+  }, true);
 }
 
 function openModal() {
   taskModal.classList.add("show");
   taskDay.value = dayNames[selectedDayIndex];
+  taskTitle.focus();
 }
 
 function closeModal() {
+  if (submittingTask) return;
   taskModal.classList.remove("show");
   taskForm.reset();
+  taskTitle.setCustomValidity("");
+  openTaskModal.focus();
 }
 
 taskForm.addEventListener("submit", async function (event) {
   event.preventDefault();
 
-  const selectedManualDayIndex = dayNames.indexOf(taskDay.value);
-  const manualTaskDate = getDateForDay(selectedManualDayIndex);
-  const manualTaskDateKey = getDateKey(manualTaskDate);
-
-  const newTask = {
-    title: taskTitle.value,
-    day: taskDay.value,
-    dateKey: manualTaskDateKey,
-    category: taskCategory.value,
-    completed: false
-  };
-
-  const savedTask = await addManualTaskOnline(newTask);
-
-  if (savedTask) {
+  if (dataBusy || !dataLoaded || submittingTask) return;
+  const title = taskTitle.value.trim();
+  taskTitle.setCustomValidity(title ? "" : "Enter a task name.");
+  if (!taskForm.reportValidity()) return;
+  const index = dayNames.indexOf(taskDay.value);
+  if (index < 0) return;
+  const newTask = { title, day: taskDay.value, dateKey: getDateKey(getDateForDay(index)),
+    category: taskCategory.value, completed: false };
+  submittingTask = true;
+  const saved = await runDataOperation(async () => {
+    const savedTask = await addManualTaskOnline(newTask);
     manualTasks.push(savedTask);
-    closeModal();
-    renderApp();
-  }
+  }, true);
+  submittingTask = false;
+  renderBusyState();
+  if (saved) closeModal();
 });
 
+taskTitle.addEventListener("input", () => taskTitle.setCustomValidity(""));
+taskModal.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeModal();
+  if (event.key === "Tab") {
+    const controls = [...taskModal.querySelectorAll("input, select, button")].filter(el => !el.disabled);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
 openTaskModal.addEventListener("click", openModal);
 closeTaskModal.addEventListener("click", closeModal);
 
@@ -829,11 +824,13 @@ taskModal.addEventListener("click", function (event) {
 });
 
 previousDayButton.addEventListener("click", function () {
+  if (selectedDayIndex === 0) weekStart.setDate(weekStart.getDate() - 7);
   selectedDayIndex = selectedDayIndex === 0 ? 6 : selectedDayIndex - 1;
   renderApp();
 });
 
 nextDayButton.addEventListener("click", function () {
+  if (selectedDayIndex === 6) weekStart.setDate(weekStart.getDate() + 7);
   selectedDayIndex = selectedDayIndex === 6 ? 0 : selectedDayIndex + 1;
   renderApp();
 });
@@ -852,6 +849,7 @@ function renderApp() {
   renderDays();
   updateDateInformation();
   renderTaskGroups();
+  renderBusyState();
 }
 function getMondayOfWeek(date) {
   const selectedDate = new Date(date);
@@ -900,40 +898,15 @@ function goToToday() {
 
 todayButton.addEventListener("click", goToToday);
 
-// First load
-loadDataFromSupabase();
-
-// Live auto refresh
-let isLiveRefreshing = false;
-
+// Reads and writes share a lock so polling cannot replace an in-flight change.
 async function refreshLiveData() {
-  if (isLiveRefreshing) return;
-
-  isLiveRefreshing = true;
-
-  try {
-    await loadDataFromSupabase();
-    console.log("Live data refreshed:", new Date().toLocaleTimeString());
-  } catch (error) {
-    console.error("Live refresh error:", error);
-  } finally {
-    isLiveRefreshing = false;
-  }
+  if (dataBusy) return;
+  await runDataOperation(loadDataFromSupabase);
 }
-
-// Refresh every 10 seconds while app is open
-setInterval(() => {
-  if (!document.hidden) {
-    refreshLiveData();
-  }
-}, 10000);
-
-// Refresh immediately when user comes back to the app
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) {
-    refreshLiveData();
-  }
-});
-
-// Extra refresh when browser/tab gets focus
+window.addEventListener("offline", () => showError("You are offline. Reconnect before saving changes."));
+window.addEventListener("online", refreshLiveData);
+setInterval(() => { if (!document.hidden) refreshLiveData(); }, 10000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshLiveData(); });
 window.addEventListener("focus", refreshLiveData);
+renderApp();
+refreshLiveData();
