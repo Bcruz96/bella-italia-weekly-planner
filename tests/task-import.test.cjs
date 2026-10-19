@@ -41,7 +41,7 @@ test('AI endpoint validates access, requests and model output without database w
   assert.equal(calls,0);
   const result=await call(body);
   assert.equal(result.code,200);assert.equal(result.body.tasks[0].people,25);
-  assert.equal(sent.store,false);assert.equal(sent.text.format.strict,true);
+  assert.equal(sent.store,false);assert.equal(sent.text.format.strict,true);assert.equal(sent.max_output_tokens,2400);
   assert.match(sent.instructions,/UK English \(en-GB\)/);
   assert.match(sent.instructions,/British spelling/);
   global.fetch=async()=>({ok:true,json:async()=>({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({tasks:[{...valid(),date:'2026-02-30'}],warnings:[]})}]}]})});
@@ -116,4 +116,17 @@ test('quick planner reviews remain useful without GPT credit and preserve drafts
   assert.equal(response.code,200);assert.equal(response.body.draftMode,'keep');assert.match(response.body.reply,/Check stock/);
   const second=await call({text:'25/10/26 25 px at 19:30 Fish Chips',weekStart:'2026-10-19',history:[{role:'assistant',content:'Your draft is ready'}],currentDraft:[valid()]});
   assert.equal(second.code,200);assert.equal(second.body.tasks.length,2);
+});
+
+test('unknown upstream limits are not misreported as temporary and diagnostics omit private data',async t=>{
+  const previous={key:process.env.OPENAI_API_KEY,code:process.env.AI_ACCESS_CODE,fetch:global.fetch,error:console.error};
+  t.after(()=>{global.fetch=previous.fetch;console.error=previous.error;for(const [name,value] of [['OPENAI_API_KEY',previous.key],['AI_ACCESS_CODE',previous.code]]) {if(value===undefined)delete process.env[name];else process.env[name]=value;}});
+  process.env.OPENAI_API_KEY='test-secret-never-log';process.env.AI_ACCESS_CODE='test-code-at-least-12';
+  let diagnostic,sent;console.error=value=>{diagnostic=JSON.parse(value)};
+  global.fetch=async(url,options)=>{sent=JSON.parse(options.body);return {ok:false,status:429,headers:{get:name=>name==='x-request-id'?'req_test123':null},json:async()=>({error:{message:'private upstream text'}})};};
+  const result=await call({text:'add for friday lunch booking 12 px at 12 o clock',weekStart:'2026-10-19',context:{tasks:Array.from({length:100},(_,i)=>({date:'2026-10-23',title:'Task '+i+' '+ 'x'.repeat(500),completed:false}))}});
+  assert.equal(result.body.code,'usage_limit_unclassified');assert.equal(result.body.requestId,'req_test123');
+  assert.equal(result.body.error.includes('temporarily'),false);assert.equal(diagnostic.event,'openai_request_failed');
+  assert.equal(JSON.stringify(diagnostic).includes('test-secret-never-log'),false);assert.equal(JSON.stringify(diagnostic).includes('private upstream text'),false);
+  assert.equal(sent.max_output_tokens,2400);assert.ok(sent.input[0].content.length<14000);assert.match(sent.input[0].content,/"truncated":true/);
 });

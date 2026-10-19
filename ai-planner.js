@@ -209,7 +209,8 @@
       }
       if(!response.ok) {
         if(response.status === 401) { forgetCode(); rejectedCode = true; }
-        throw Error(result.error || 'Could not organise tasks. Please try again.');
+        const reference=typeof result.requestId==='string'&&/^[\w.:-]{1,120}$/.test(result.requestId)?' Reference: '+result.requestId:'';
+        throw Error((result.error || 'Could not organise tasks. Please try again.')+reference);
       }
       if(!Array.isArray(result.tasks) || result.tasks.length>30 || !Array.isArray(result.warnings) || result.warnings.some(w=>typeof w!=='string')) throw Error('Invalid plan. Please try again.');
       if(result.reply!==undefined&&(typeof result.reply!=='string'||result.reply.length>4000))throw Error('Invalid assistant reply. Please try again.');
