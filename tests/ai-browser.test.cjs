@@ -146,3 +146,11 @@ test('blocked persistent storage does not prevent planning tasks',async t=>{
   assert.match(app.get('aiStatus').textContent,/could not remember/);
   assert.equal(app.get('aiCodeEntry').hidden,false);
 });
+
+test('verified access code is remembered even when OpenAI has no credit',async t=>{
+  const app=await setup(t);app.get('aiCode').value='test-team-code-123';app.get('aiRememberCode').checked=true;
+  app.w.fetch=async()=>({ok:false,status:429,headers:{get:()=> 'true'},json:async()=>({error:'OpenAI API credit or quota is unavailable.'})});
+  await app.generate();assert.equal(app.w.localStorage.getItem('bella-ai-access-v1'),'test-team-code-123');
+  assert.equal(app.get('aiCodeSaved').hidden,false);assert.equal(app.store.manual_tasks.length,0);
+  assert.match(app.get('aiStatus').textContent,/quota/);
+});

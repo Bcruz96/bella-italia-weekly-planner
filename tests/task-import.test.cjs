@@ -74,3 +74,21 @@ test('authorised shorthand endpoint works without a model call and refuses inval
   assert.equal((await call({...body,text:body.text.replace('25/10','31/02')})).code,400);
   assert.equal((await call({...body,text:'Tomorrow check stock'})).code,503);
 });
+
+test('short booking note from the screenshot accepts an hour without minutes',()=>{
+  const result=tasks.parseGroupNotes('22/10/26 30 px at 22 fish chips - browniw');
+  assert.deepEqual(result.tasks[0],{title:'Booking',date:'2026-10-22',time:'22:00',people:30,description:'Menu: fish chips - browniw',category:'Front of House'});
+  assert.throws(()=>tasks.parseGroupNotes('22/10/26 30 px at 25 fish chips'));
+  assert.throws(()=>tasks.parseGroupNotes('22/10/26 30 px at 22:99 fish chips'));
+});
+test('API quota and temporary rate limits have distinct actionable messages',async t=>{
+  const previous={key:process.env.OPENAI_API_KEY,code:process.env.AI_ACCESS_CODE,fetch:global.fetch};
+  t.after(()=>{global.fetch=previous.fetch;for(const [name,value] of [['OPENAI_API_KEY',previous.key],['AI_ACCESS_CODE',previous.code]]) {if(value===undefined)delete process.env[name];else process.env[name]=value;}});
+  process.env.OPENAI_API_KEY='not-real';process.env.AI_ACCESS_CODE='test-code-at-least-12';
+  const body={text:'Tomorrow check stock',weekStart:'2026-10-19'};
+  global.fetch=async()=>({ok:false,status:429,json:async()=>({error:{code:'insufficient_quota',message:'private upstream detail'}})});
+  const quota=await call(body);assert.equal(quota.body.code,'insufficient_quota');assert.match(quota.body.error,/billing/);
+  assert.equal(quota.headers['X-AI-Access-Verified'],'true');assert.equal(quota.body.error.includes('private upstream'),false);
+  global.fetch=async()=>({ok:false,status:429,json:async()=>({error:{code:'rate_limit_exceeded'}})});
+  const temporary=await call(body);assert.equal(temporary.body.code,'rate_limit');assert.match(temporary.body.error,/Wait a moment/);
+});

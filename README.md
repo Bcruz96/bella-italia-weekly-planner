@@ -8,7 +8,7 @@ Simple group notes also work, for example:
 
 > 25/10/26 grpo sales 25 px at 19:30 Fish Chips - Brownie
 
-This creates one **Group sales** task for **25/10/2026**, **19:30**, **25 people**, with **Menu: Fish Chips - Brownie**. `grpo`/`grp` are recognised as `group`, and `px`/`pax` mean people. Two-digit years mean 2000-2099. This explicit group-note format is parsed and validated locally on the server without a model call (a valid team access code is still required). Impossible dates, times or people counts are rejected. Multiple notes can be entered on separate lines. Free-form messages still use OpenAI.
+This creates one **Group sales** task for **25/10/2026**, **19:30**, **25 people**, with **Menu: Fish Chips - Brownie**. `grpo`/`grp` are recognised as `group`, and `px`/`pax` mean people. Two-digit years mean 2000-2099. This explicit group-note format is parsed and validated locally on the server without a model call (a valid team access code is still required). Impossible dates, times or people counts are rejected. The shorter note `22/10/26 30 px at 22 fish chips - brownie` is also supported: it creates a Booking at 22:00. Multiple notes can be entered on separate lines. Free-form messages still use OpenAI.
 
 Free-form example:
 

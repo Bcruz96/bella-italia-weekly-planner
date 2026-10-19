@@ -121,19 +121,20 @@
         headers:{'Content-Type':'application/json','x-ai-access-code':byId('aiCode').value},
         body:JSON.stringify({text:byId('aiText').value,weekStart:referenceWeek})});
       let result; try{result=await response.json();}catch{throw Error('AI is unavailable on this site. Please check the deployment setup.');}
+      let rememberNotice = '';
+      // A quota error still means the server accepted the team's access code.
+      if (byId('aiRememberCode').checked && (response.ok || response.headers?.get('X-AI-Access-Verified') === 'true')) {
+        try {
+          localStorage.setItem(accessStorageKey, byId('aiCode').value);
+          showRememberedCode(true);
+        } catch { rememberNotice = ' Your browser could not remember the code; it is available for this visit only.'; }
+      }
       if(!response.ok) {
         if(response.status === 401) { forgetCode(); rejectedCode = true; }
         throw Error(result.error || 'Could not organise tasks. Please try again.');
       }
       if(!Array.isArray(result.tasks) || result.tasks.length>30 || !Array.isArray(result.warnings) || result.warnings.some(w=>typeof w!=='string')) throw Error('Invalid plan. Please try again.');
       drafts=result.tasks.map(task=>TaskImport.normalize(task,true)); warnings=result.warnings;
-      let rememberNotice = '';
-      if (byId('aiRememberCode').checked) {
-        try {
-          localStorage.setItem(accessStorageKey, byId('aiCode').value);
-          showRememberedCode(true);
-        } catch { rememberNotice = ' Your browser could not remember the code; it is available for this visit only.'; }
-      }
       persist(); renderDrafts();
       message((drafts.length ? 'Review every date and detail below. Nothing has been added yet.' : warnings.join(' ') || 'No tasks found. Add dates and descriptions, then try again.') + rememberNotice);
       if(drafts.length) byId('aiReviewTitle').scrollIntoView({block:'nearest',behavior:'smooth'});
