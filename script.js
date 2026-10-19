@@ -879,7 +879,6 @@ function renderApp() {
   updateDateInformation();
   renderTaskGroups();
   renderBusyState();
-  if (typeof window.dispatchEvent === "function") window.dispatchEvent(new Event("planner:updated"));
 }
 function getMondayOfWeek(date) {
   const selectedDate = new Date(date);
@@ -928,8 +927,27 @@ function goToToday() {
 
 todayButton.addEventListener("click", goToToday);
 
+// Follow midnight only when the user was viewing today.
+let trackedDate = getDateKey(new Date());
+function updateCurrentDate() {
+  const today = getDateKey(new Date());
+  if (today === trackedDate) return;
+  const wasViewingToday = getSelectedDateKey() === trackedDate;
+  trackedDate = today;
+  if (wasViewingToday) goToToday();
+  else renderApp();
+}
+
+// Remove retired assistant data without changing saved checklist tasks.
+try { localStorage.removeItem('bella-ai-access-v1'); } catch {}
+try {
+  sessionStorage.removeItem('bella-ai-draft-v1');
+  sessionStorage.removeItem('bella-planner-chat-v1');
+} catch {}
+
 // Reads and writes share a lock so polling cannot replace an in-flight change.
 async function refreshLiveData() {
+  updateCurrentDate();
   if (dataBusy) return;
   await runDataOperation(loadDataFromSupabase);
 }

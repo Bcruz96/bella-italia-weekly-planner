@@ -31,11 +31,6 @@
   <main class="container">
     <p id="appMessage" class="app-message" role="alert" hidden></p>
 
-    <section id="plannerBriefing" class="planner-briefing" aria-labelledby="briefingTitle">
-      <div><p class="briefing-eyebrow">Live overview</p><h2 id="briefingTitle">Your day at a glance</h2><p id="briefingText">Waiting for the latest checklist...</p></div>
-      <button type="button" id="askPlanner" class="ai-task-button">Review my week</button>
-      <ul id="briefingPriorities"></ul>
-    </section>
     <section class="week-selector">
       <button class="arrow-button" id="previousDay" aria-label="Previous day">‹</button>
 
@@ -77,12 +72,9 @@
           </div>
         </div>
 
-        <div class="task-actions">
-          <button type="button" class="ai-task-button" id="openAiPlanner">Add with AI</button>
         <button type="button" class="add-task-button" id="openTaskModal">
           + Add task
         </button>
-        </div>
       </div>
     </section>
 
@@ -140,47 +132,7 @@
   </div>
 
 
-  <div class="modal" id="aiModal">
-    <div class="modal-content ai-modal-content" role="dialog" aria-modal="true" aria-labelledby="aiTitle">
-      <div class="ai-heading"><div><h2 id="aiTitle">Plan with AI</h2><p class="modal-description">Ask about your week, plan any task, or tell me what to change in your draft.</p></div><button type="button" class="ai-close" id="closeAiPlanner" aria-label="Close AI planner">&times;</button></div>
-      <p id="aiStatus" class="ai-status" role="status" aria-live="polite"></p>
-      <div class="ai-chat-toolbar"><span>Conversation saved in this browser tab.</span><button type="button" id="aiNewChat">New chat</button></div>
-      <div id="aiConversation" class="ai-conversation" role="log" aria-label="Planner conversation" aria-live="polite"></div>
-      <div class="ai-suggestions"><button type="button" data-ai-prompt="What should I prioritise today?">Today's priorities</button><button type="button" data-ai-prompt="Review the selected week for unfinished tasks and possible timing conflicts.">Review this week</button></div>
-      <form id="aiPlanForm">
-        <div id="aiCodeEntry" class="ai-code-entry">
-          <label class="field-label" for="aiCode">Team access code</label>
-          <input id="aiCode" type="password" autocomplete="off" maxlength="256" placeholder="Your team's AI code" required>
-          <label class="ai-remember"><input type="checkbox" id="aiRememberCode"> Remember on this device</label>
-        </div>
-        <div id="aiCodeSaved" class="ai-code-saved" hidden>
-          <span>Access code remembered on this device.</span>
-          <button type="button" id="aiForgetCode">Forget code</button>
-        </div>
-        <label class="field-label" for="aiText">What needs doing?</label>
-        <textarea id="aiText" rows="5" maxlength="6000" required placeholder="Tomorrow check the drinks stock. Every Monday until 30/11/2026 check payroll."></textarea>
-        <p class="ai-hint" id="aiWeekContext"></p>
-        <p class="ai-hint">Use UK English. Group notes can use grpo sales, px or pax, and DD/MM/YY. Your message, recent conversation, unsaved draft and relevant checklist tasks are sent to OpenAI for context. Nothing is added until you review it.</p>
-        <button type="submit" class="add-task-button" id="aiGenerate">Send message</button>
-      </form>
-      <section id="aiReview" hidden aria-labelledby="aiReviewTitle">
-        <h3 id="aiReviewTitle">Review your tasks</h3>
-        <p class="ai-hint">Check each date. You can edit or remove tasks before adding them.</p>
-        <ul id="aiWarnings" class="ai-warnings"></ul>
-        <form id="aiSaveForm">
-          <div id="aiDrafts"></div>
-          <p class="ai-hint">Existing tasks with the same date and full text are skipped. Past dates need your acknowledgement.</p>
-          <label id="aiPastLabel" class="ai-past" hidden><input type="checkbox" id="aiAllowPast"> I checked the dates in the past.</label>
-          <div class="modal-actions"><button type="button" id="aiDiscard">Discard draft</button><button type="submit" id="aiSave">Add reviewed tasks</button></div>
-        </form>
-      </section>
-    </div>
-  </div>
-
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script src="script.js"></script>
-<script src="lib/task-import.js"></script>
-<script src="lib/planner-context.js"></script>
-<script src="ai-planner.js"></script>
 </body>
 </html>

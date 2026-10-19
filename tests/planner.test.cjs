@@ -232,3 +232,15 @@ test('loading paginates beyond the database row limit',async()=>{
   assert.equal(run('manualTasks[1200].id'),'1200');
   assert.equal(run('pageCalls.filter(call=>call.table==="manual_tasks").length'),3);
 });
+
+test('midnight follows today but preserves a deliberately selected day', () => {
+  const app = setup({now:'2026-10-25T23:59:00+00:00'});
+  assert.equal(app.run('getSelectedDateKey()'),'2026-10-25');
+  app.setNow('2026-10-26T00:01:00+00:00');
+  app.run('updateCurrentDate()');
+  assert.equal(app.run('getSelectedDateKey()'),'2026-10-26');
+  app.run('selectedDayIndex = 2');
+  app.setNow('2026-10-27T00:01:00+00:00');
+  app.run('updateCurrentDate()');
+  assert.equal(app.run('getSelectedDateKey()'),'2026-10-28');
+});
