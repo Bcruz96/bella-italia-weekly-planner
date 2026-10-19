@@ -90,7 +90,7 @@ test('API quota and temporary rate limits have distinct actionable messages',asy
   const quota=await call(body);assert.equal(quota.body.code,'insufficient_quota');assert.match(quota.body.error,/billing/);
   assert.equal(quota.headers['X-AI-Access-Verified'],'true');assert.equal(quota.body.error.includes('private upstream'),false);
   global.fetch=async()=>({ok:false,status:429,json:async()=>({error:{code:'rate_limit_exceeded'}})});
-  const temporary=await call(body);assert.equal(temporary.body.code,'rate_limit');assert.match(temporary.body.error,/Wait a moment/);
+  const temporary=await call(body);assert.equal(temporary.body.code,'rate_limit');assert.match(temporary.body.error,/API Limits/);
 });
 
 test('conversation endpoint receives prior turns and draft and can ask without replacing it',async t=>{
@@ -129,4 +129,23 @@ test('unknown upstream limits are not misreported as temporary and diagnostics o
   assert.equal(result.body.error.includes('temporarily'),false);assert.equal(diagnostic.event,'openai_request_failed');
   assert.equal(JSON.stringify(diagnostic).includes('test-secret-never-log'),false);assert.equal(JSON.stringify(diagnostic).includes('private upstream text'),false);
   assert.equal(sent.max_output_tokens,2400);assert.ok(sent.input[0].content.length<14000);assert.match(sent.input[0].content,/"truncated":true/);
+});
+
+test('provider error variants reveal the cause and redact credentials',()=>{
+  const {describeProviderError}=require('../lib/provider-error.js');
+  assert.equal(describeProviderError({error:{type:'tokens',message:'Token limit reached per day.'}}).kind,'rate');
+  assert.equal(describeProviderError({error:{code:null,type:'requests'}}).kind,'rate');
+  assert.equal(describeProviderError({message:'You exceeded your current quota. Check billing.'}).kind,'quota');
+  const result=describeProviderError({error:{message:'Rate limit for org_abc key sk-proj-sensitive-value code MY-TEAM-CODE at https://example.test/?secret=abc'}},['MY-TEAM-CODE']);
+  assert.equal(result.message.includes('sensitive-value'),false);assert.equal(result.message.includes('MY-TEAM-CODE'),false);assert.equal(result.message.includes('org_abc'),false);assert.equal(result.message.includes('secret=abc'),false);
+});
+test('plain provider rate error is readable without exposing a key',async t=>{
+  const previous={key:process.env.OPENAI_API_KEY,code:process.env.AI_ACCESS_CODE,fetch:global.fetch,error:console.error};
+  t.after(()=>{global.fetch=previous.fetch;console.error=previous.error;for(const [name,value] of [['OPENAI_API_KEY',previous.key],['AI_ACCESS_CODE',previous.code]]) {if(value===undefined)delete process.env[name];else process.env[name]=value;}});
+  process.env.OPENAI_API_KEY='test-secret-never-log';process.env.AI_ACCESS_CODE='test-code-at-least-12';console.error=()=>{};
+  global.fetch=async()=>({ok:false,status:429,text:async()=>JSON.stringify({error:{type:'tokens',code:null,message:'Tokens per day limit reached: test-secret-never-log'}})});
+  const result=await call({text:'add for friday lunch booking 12 px at 12 o clock',weekStart:'2026-10-19'});
+  assert.equal(result.body.code,'rate_limit');assert.match(result.body.error,/Tokens per day/);assert.equal(result.body.error.includes('test-secret-never-log'),false);
+  global.fetch=async()=>({ok:false,status:429,text:async()=> 'You exceeded your current quota. Check billing.'});
+  assert.equal((await call({text:'check stock tomorrow',weekStart:'2026-10-19'})).body.code,'insufficient_quota');
 });

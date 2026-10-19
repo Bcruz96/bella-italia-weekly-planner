@@ -1,6 +1,7 @@
 const {timingSafeEqual} = require('node:crypto');
 const tasks = require('../lib/task-import.js');
 const planner = require('../lib/planner-context.js');
+const {describeProviderError} = require('../lib/provider-error.js');
 const schema = {
   type:'object', additionalProperties:false, required:['tasks','warnings','reply','needsClarification','draftMode'],
   properties:{
@@ -88,19 +89,27 @@ module.exports = async function handler(req,res) {
     });
     if(!response.ok) {
       let upstream;
-      try { upstream=await response.json(); } catch {}
-      const code=upstream?.error?.code || upstream?.error?.type;
+      try {
+        if(typeof response.text==='function'){
+          const raw=await response.text();
+          try{upstream=JSON.parse(raw);}catch{upstream={message:raw.trim().startsWith('<')?'Provider returned a non-JSON error response.':raw};}
+        }else upstream=await response.json();
+      } catch {}
+      const provider=describeProviderError(upstream,[process.env.OPENAI_API_KEY,process.env.AI_ACCESS_CODE]);
+      const code=provider.code!=='unknown'?provider.code:provider.type;
+      const reason=provider.message?' Provider reason: '+provider.message:'';
       const safeHeader=name=>{const value=response.headers?.get(name);return typeof value==='string'&&/^[\w.:-]{1,120}$/.test(value)?value:null;};
       const diagnostic={event:'openai_request_failed',status:response.status,
         code:['insufficient_quota','billing_hard_limit_reached','rate_limit_exceeded','slow_down'].includes(code)?code:'unclassified',
+        providerCode:provider.code,providerType:provider.type,
         requestId:safeHeader('x-request-id'),tokenLimit:safeHeader('x-ratelimit-limit-tokens'),
         tokensRemaining:safeHeader('x-ratelimit-remaining-tokens'),retryAfter:safeHeader('retry-after')};
       console.error(JSON.stringify(diagnostic));
-      if(response.status===429 && ['insufficient_quota','billing_hard_limit_reached'].includes(code)) {
-        return res.status(429).json({code:'insufficient_quota', error:'OpenAI API credit or quota is unavailable. Ask the manager to check API billing and project limits. Retrying will not fix this until the account is updated. Explicit booking notes can still be organised without GPT.'});
+      if(response.status===429 && provider.kind==='quota') {
+        return res.status(429).json({code:'insufficient_quota',requestId:diagnostic.requestId, error:'OpenAI API credit or quota is unavailable. Ask the manager to check API billing and project limits. Retrying will not fix this until the account is updated. Explicit booking notes can still be organised without GPT.'});
       }
-      if(response.status===429 && ['rate_limit_exceeded','slow_down'].includes(code)) return res.status(429).json({code:'rate_limit',requestId:diagnostic.requestId,error:'OpenAI has reached a request or token limit for this project. Wait a moment, then try again. If this persists, ask the manager to check the project API Limits. Quick planner reviews remain available.'});
-      if(response.status===429) return res.status(429).json({code:'usage_limit_unclassified',requestId:diagnostic.requestId,error:'OpenAI rejected the request with a usage-limit error (429), without a recognised reason. Ask the manager to check API Usage, Limits and Billing, or the openai_request_failed entry in Vercel Logs. Nothing was added.'});
+      if(response.status===429 && provider.kind==='rate') return res.status(429).json({code:'rate_limit',requestId:diagnostic.requestId,error:'OpenAI has reached a request or token limit for this project. Check the provider reset time and project API Limits before retrying. Quick planner reviews remain available.'+reason});
+      if(response.status===429) return res.status(429).json({code:'usage_limit_unclassified',requestId:diagnostic.requestId,error:'OpenAI rejected the request (429). Check the provider reason below; no tasks were added.'+reason});
       return res.status(502).json({error:'AI could not process the message. Check the service configuration or try again.'});
     }
     const result=await response.json();
