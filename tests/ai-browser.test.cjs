@@ -9,11 +9,15 @@ async function setup(t, options={}) {
   const html=fs.readFileSync('index.html','utf8').replace(/<script[^>]*>[\s\S]*?<\/script>/g,'');
   const dom=new JSDOM(html,{url:'http://localhost/',runScripts:'outside-only'}), w=dom.window;
   t.after(()=>w.close());
+  let simulatedNow=options.now?Date.parse(options.now):Date.now();
+  class AppDate extends Date{constructor(...args){super(...(args.length?args:[simulatedNow]));}static now(){return simulatedNow;}}
+  w.Date=AppDate;
+  const timers=new Map();w.setInterval=(callback,ms)=>{timers.set(ms,callback);return ms;};
   const store={manual_tasks:options.existing || [],fixed_task_completion:[]};
   let inserts=0, loseResponse=Boolean(options.loseResponse);
   const client={from(table){
     let filters=[],rows=null;
-    const q={select(){return q;},eq(key,value){filters.push([key,value]);return q;},limit(){return q;},
+    const q={order(){return q;},range(){return q;},select(){return q;},eq(key,value){filters.push([key,value]);return q;},limit(){return q;},
       insert(value){rows=value;return q;},then(resolve,reject){return Promise.resolve().then(()=>{
         if(rows){
           inserts++;
@@ -32,13 +36,13 @@ async function setup(t, options={}) {
   if(options.draft)w.sessionStorage.setItem('bella-ai-draft-v1',options.draft);
   if(options.remembered)w.localStorage.setItem('bella-ai-access-v1',options.remembered);
   const run=code=>vm.runInContext(code,dom.getInternalVMContext());
-  for(const file of ['script.js','lib/task-import.js','ai-planner.js'])run(fs.readFileSync(file,'utf8'));
+  for(const file of ['script.js','lib/task-import.js','lib/planner-context.js','ai-planner.js'])run(fs.readFileSync(file,'utf8'));
   await settle();
   const get=id=>w.document.getElementById(id);
   get('openAiPlanner').click();if(!options.remembered)get('aiCode').value='team-code';get('aiText').value='My weekly tasks';
-  async function generate(){get('aiPlanForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();}
+  async function generate(){if(!get('aiText').value)get('aiText').value='My weekly tasks';get('aiPlanForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();}
   async function save(){get('aiSaveForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();}
-  return {w,get,run,store,generate,save,inserts:()=>inserts};
+  return {w,get,run,store,generate,save,inserts:()=>inserts,setNow:value=>{simulatedNow=Date.parse(value);},tickMinute:()=>timers.get(60000)()};
 }
 test('real HTML opens an editable AI preview and saves all details on the right date',async t=>{
   const app=await setup(t); await app.generate();
@@ -153,4 +157,53 @@ test('verified access code is remembered even when OpenAI has no credit',async t
   await app.generate();assert.equal(app.w.localStorage.getItem('bella-ai-access-v1'),'test-team-code-123');
   assert.equal(app.get('aiCodeSaved').hidden,false);assert.equal(app.store.manual_tasks.length,0);
   assert.match(app.get('aiStatus').textContent,/quota/);
+});
+
+test('follow-up messages send draft, conversation and planner context',async t=>{
+  const app=await setup(t);await app.generate();
+  let sent;
+  app.w.fetch=async(url,options)=>{sent=JSON.parse(options.body);return {ok:true,json:async()=>({tasks:[{...base(),time:'20:00'}],warnings:[],reply:'I changed the draft to 20:00.',draftMode:'replace',needsClarification:false})};};
+  app.get('aiText').value='Make it 20:00';await app.generate();
+  assert.equal(sent.currentDraft[0].time,'19:00');assert.equal(sent.history.length,2);
+  assert.ok(sent.context.tasks.some(task=>task.category==='Payroll Checks'));
+  assert.equal(app.get('aiDrafts').querySelector('input[type=time]').value,'20:00');
+  assert.match(app.get('aiConversation').textContent,/changed the draft/);
+  assert.equal(app.store.manual_tasks.length,0);
+});
+test('answering a question keeps the unsaved draft and does not insert tasks',async t=>{
+  const app=await setup(t);await app.generate();
+  app.w.fetch=async()=>({ok:true,json:async()=>({tasks:[],warnings:[],reply:'Your payroll checks are on Monday.',draftMode:'keep',needsClarification:false})});
+  app.get('aiText').value='When is payroll?';await app.generate();
+  assert.equal(app.get('aiDrafts').querySelector('input[type=text]').value,'Prepare tables');
+  assert.match(app.get('aiConversation').textContent,/payroll checks/);assert.equal(app.inserts(),0);
+});
+test('clarification blocks saving until answered in the conversation',async t=>{
+  const app=await setup(t);
+  app.w.fetch=async()=>({ok:true,json:async()=>({tasks:[{...base(),date:null}],warnings:[],reply:'Which date is the group arriving?',draftMode:'replace',needsClarification:true})});
+  await app.generate();assert.equal(app.get('aiSave').disabled,true);await app.save();assert.equal(app.inserts(),0);
+  app.w.fetch=async()=>({ok:true,json:async()=>({tasks:[base()],warnings:[],reply:'I have set the date.',draftMode:'replace',needsClarification:false})});
+  app.get('aiText').value='23 October 2027';await app.generate();await app.save();assert.equal(app.inserts(),1);
+});
+test('reviewed weekly tasks save bounded occurrences on separate dates',async t=>{
+  const app=await setup(t,{tasks:[{...base(),repeat:{frequency:'weekly',endDate:'2027-11-06'}}]});
+  await app.generate();await app.save();
+  assert.deepEqual(app.store.manual_tasks.map(row=>row.date_key),['2027-10-23','2027-10-30','2027-11-06']);
+  assert.match(app.get('aiConversation').textContent,/3 tasks were saved/);
+});
+test('new chat clears conversation and draft while keeping saved checklist',async t=>{
+  const app=await setup(t);await app.generate();await app.save();
+  app.get('aiNewChat').click();assert.equal(app.get('aiReview').hidden,true);
+  assert.equal(app.w.sessionStorage.getItem('bella-planner-chat-v1'),null);
+  assert.equal(app.store.manual_tasks.length,1);
+});
+
+test('the live day follows midnight only while viewing today',async t=>{
+  const app=await setup(t,{now:'2026-10-19T22:59:00Z'});
+  assert.equal(app.run('getSelectedDateKey()'),'2026-10-19');
+  app.setNow('2026-10-20T00:01:00Z');app.tickMinute();
+  assert.equal(app.run('getSelectedDateKey()'),'2026-10-20');
+  app.get('nextLabel').click();const browsing=app.run('getSelectedDateKey()');
+  app.setNow('2026-10-21T00:01:00Z');app.tickMinute();
+  assert.equal(app.run('getSelectedDateKey()'),browsing);
+  assert.match(app.get('briefingText').textContent,/unfinished today/);
 });

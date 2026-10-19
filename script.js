@@ -417,10 +417,20 @@ function renderBusyState() {
   saveTaskButton.disabled = dataBusy || !dataLoaded;
   saveTaskButton.textContent = submittingTask ? "Saving..." : "Save Task";
 }
+async function loadTablePages(table) {
+  const data=[];
+  const pageSize=500;
+  for(let offset=0;;offset+=pageSize){
+    const result=await database.from(table).select('*').eq('restaurant_id',RESTAURANT_ID).order('id').range(offset,offset+pageSize-1);
+    if(result.error)throw result.error;
+    data.push(...result.data);
+    if(result.data.length<pageSize)return {data};
+  }
+}
 async function loadDataFromSupabase() {
   const results = await Promise.all([
-    database.from("fixed_task_completion").select("*").eq("restaurant_id", RESTAURANT_ID),
-    database.from("manual_tasks").select("*").eq("restaurant_id", RESTAURANT_ID)
+    loadTablePages('fixed_task_completion'),
+    loadTablePages('manual_tasks')
   ]);
   for (const result of results) if (result.error) throw result.error;
   const nextCompletion = {};
@@ -869,6 +879,7 @@ function renderApp() {
   updateDateInformation();
   renderTaskGroups();
   renderBusyState();
+  if (typeof window.dispatchEvent === "function") window.dispatchEvent(new Event("planner:updated"));
 }
 function getMondayOfWeek(date) {
   const selectedDate = new Date(date);

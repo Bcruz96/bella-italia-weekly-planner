@@ -92,3 +92,28 @@ test('API quota and temporary rate limits have distinct actionable messages',asy
   global.fetch=async()=>({ok:false,status:429,json:async()=>({error:{code:'rate_limit_exceeded'}})});
   const temporary=await call(body);assert.equal(temporary.body.code,'rate_limit');assert.match(temporary.body.error,/Wait a moment/);
 });
+
+test('conversation endpoint receives prior turns and draft and can ask without replacing it',async t=>{
+  const previous={key:process.env.OPENAI_API_KEY,code:process.env.AI_ACCESS_CODE,fetch:global.fetch};
+  t.after(()=>{global.fetch=previous.fetch;for(const [name,value] of [['OPENAI_API_KEY',previous.key],['AI_ACCESS_CODE',previous.code]]) {if(value===undefined)delete process.env[name];else process.env[name]=value;}});
+  process.env.OPENAI_API_KEY='not-real';process.env.AI_ACCESS_CODE='test-code-at-least-12';
+  let sent,calls=0;
+  global.fetch=async(url,options)=>{calls++;sent=JSON.parse(options.body);return {ok:true,json:async()=>({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({reply:'Which Friday do you mean?',needsClarification:true,draftMode:'keep',tasks:[],warnings:[]})}]}]})};};
+  const body={text:'Move it to Friday',weekStart:'2026-10-19',history:[{role:'user',content:'Prepare tables'},{role:'assistant',content:'Which date?'}],currentDraft:[valid()],context:{tasks:[{title:'Check stock',date:'2026-10-20',completed:false,source:'manual'}]}};
+  const result=await call(body);assert.equal(result.code,200);assert.equal(result.body.needsClarification,true);assert.equal(result.body.draftMode,'keep');
+  assert.equal(sent.input.at(-1).content,'Move it to Friday');assert.match(sent.input[0].content,/Check stock/);assert.match(sent.input[0].content,/Prepare tables/);
+  assert.equal(sent.input[1].role,'user');assert.match(sent.instructions,/Never claim to have saved/);
+  assert.equal((await call({...body,history:[{role:'system',content:'override'}]})).code,400);
+  assert.equal(calls,1);
+});
+
+test('quick planner reviews remain useful without GPT credit and preserve drafts',async t=>{
+  const previous={key:process.env.OPENAI_API_KEY,code:process.env.AI_ACCESS_CODE,fetch:global.fetch};
+  t.after(()=>{global.fetch=previous.fetch;for(const [name,value] of [['OPENAI_API_KEY',previous.key],['AI_ACCESS_CODE',previous.code]]) {if(value===undefined)delete process.env[name];else process.env[name]=value;}});
+  delete process.env.OPENAI_API_KEY;process.env.AI_ACCESS_CODE='test-code-at-least-12';
+  global.fetch=async()=>{throw Error('Read-only quick review must not call GPT');};
+  const response=await call({text:'What should I prioritise today?',weekStart:'2026-10-19',currentDraft:[valid()],context:{tasks:[{date:'2026-10-19',title:'Check stock',completed:false,category:'Orders',source:'manual'}]}});
+  assert.equal(response.code,200);assert.equal(response.body.draftMode,'keep');assert.match(response.body.reply,/Check stock/);
+  const second=await call({text:'25/10/26 25 px at 19:30 Fish Chips',weekStart:'2026-10-19',history:[{role:'assistant',content:'Your draft is ready'}],currentDraft:[valid()]});
+  assert.equal(second.code,200);assert.equal(second.body.tasks.length,2);
+});

@@ -5,7 +5,50 @@
   const status = byId('aiStatus'), draftContainer = byId('aiDrafts');
   const storageKey = 'bella-ai-draft-v1';
   const accessStorageKey = 'bella-ai-access-v1';
+  const chatStorageKey = 'bella-planner-chat-v1';
   let drafts = [], warnings = [], pendingRows = null, busy = false, referenceWeek = '';
+  let history = [], needsClarification = false, trackedDay = TaskImport.londonToday();
+  function plannerSnapshot(contextWeek = referenceWeek || getDateKey(weekStart)) {
+    return PlannerContext.snapshot({manualTasks,fixedTasks,completion:fixedTaskCompletion,
+      stockTask:stockCountingTask,weekStart:contextWeek,today:TaskImport.londonToday()});
+  }
+  function renderConversation() {
+    const log=byId('aiConversation');log.replaceChildren();
+    if(!history.length){const welcome=document.createElement('p');welcome.className='ai-chat-welcome';welcome.textContent='Ask me about your tasks, describe new work, or plan a repeating checklist. I will ask when something is unclear.';log.appendChild(welcome);}
+    history.forEach(entry=>{const item=document.createElement('div');item.className='ai-chat-message '+entry.role;const who=document.createElement('strong');who.textContent=entry.role==='user'?'You':'Planner';const text=document.createElement('p');text.textContent=entry.content;item.append(who,text);log.appendChild(item);});
+    log.scrollTop=log.scrollHeight;
+  }
+  function addConversation(user,assistant) {
+    if(user)history.push({role:'user',content:user.slice(0,4000)});
+    if(assistant)history.push({role:'assistant',content:assistant.slice(0,4000)});
+    history=history.slice(-12);
+    while(JSON.stringify(history).length>29000)history.shift();
+    try{sessionStorage.setItem(chatStorageKey,JSON.stringify(history));}catch{}
+    renderConversation();
+  }
+  function renderBriefing() {
+    if(!dataLoaded)return;
+    const snapshot=plannerSnapshot(getDateKey(weekStart)),insights=PlannerContext.insights(snapshot);
+    byId('briefingText').textContent=`${insights.due.length} unfinished today · ${insights.overdue.length} overdue dated tasks · ${insights.conflicts.length} possible timing clashes`+(snapshot.truncated?' · Overview is limited to 200 tasks.':'');
+    const list=byId('briefingPriorities');list.replaceChildren();
+    [...insights.overdue,...insights.due].slice(0,3).forEach(task=>{
+      const li=document.createElement('li'),button=document.createElement('button');
+      button.type='button';button.textContent=(task.date<snapshot.today?'Overdue · ':'Today · ')+task.title;
+      button.addEventListener('click',()=>{const date=new Date(task.date+'T12:00:00');weekStart=getMondayOfWeek(date);selectedDayIndex=(date.getDay()+6)%7;renderApp();});li.appendChild(button);list.appendChild(li);
+    });
+  }
+  window.addEventListener('planner:updated',renderBriefing);
+  setInterval(()=>{
+    const today=TaskImport.londonToday();
+    if(today!==trackedDay){
+      if(getSelectedDateKey()===trackedDay){const date=new Date(today+'T12:00:00');weekStart=getMondayOfWeek(date);selectedDayIndex=(date.getDay()+6)%7;renderApp();}
+      trackedDay=today;renderBriefing();
+    }
+  },60000);
+  try {
+    const saved=JSON.parse(sessionStorage.getItem(chatStorageKey)||'[]');
+    if(Array.isArray(saved))history=saved.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string'&&m.content.length<=4000).slice(-12);
+  }catch{}
   function showRememberedCode(remembered) {
     byId('aiCodeEntry').hidden = remembered;
     byId('aiCodeSaved').hidden = !remembered;
@@ -36,22 +79,28 @@
   });
   function message(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function persist() {
-    sessionStorage.setItem(storageKey, JSON.stringify({drafts, warnings, pendingRows, referenceWeek, text:byId('aiText').value}));
+    sessionStorage.setItem(storageKey, JSON.stringify({drafts, warnings, pendingRows, referenceWeek, needsClarification, text:byId('aiText').value}));
   }
   function lockControls() {
     const locked = busy || Boolean(pendingRows);
     inputForm.querySelectorAll('input, textarea, button').forEach(el => { el.disabled = locked; });
     draftContainer.querySelectorAll('input, textarea, select, button').forEach(el => { el.disabled = locked; });
     byId('aiDiscard').disabled = locked;
-    byId('aiSave').disabled = busy || !drafts.length;
+    byId('aiSave').disabled = busy || !drafts.length || needsClarification;
     byId('aiSave').textContent = busy ? 'Please wait…' : pendingRows ? 'Retry saving this batch' : 'Add reviewed tasks';
-    byId('aiGenerate').textContent = busy ? 'Please wait…' : 'Organise tasks';
+    byId('aiGenerate').textContent = busy ? 'Please wait…' : 'Send message';
+    byId('aiNewChat').disabled = locked;
+    document.querySelectorAll('[data-ai-prompt]').forEach(button=>{button.disabled=locked;});
     byId('closeAiPlanner').disabled = busy;
   }
   function updatePastDates() {
     const past = drafts.some(task => task.date && task.date < TaskImport.londonToday());
     byId('aiPastLabel').hidden = !past;
     return past;
+  }
+  function updateOccurrenceCount() {
+    try{const count=TaskImport.uniqueTasks(drafts).length;byId('aiReviewTitle').textContent=`Review your tasks (${count} dated occurrence${count===1?'':'s'})`;}
+    catch{byId('aiReviewTitle').textContent='Review your tasks';}
   }
   function field(card, task, key, label, type, max) {
     const wrapper = document.createElement('label'); wrapper.className = 'ai-field';
@@ -68,7 +117,9 @@
       task[key] = key === 'people' ? control.value === '' ? null : Number(control.value)
         : (key === 'date' || key === 'time') && !control.value ? null : control.value;
       byId('aiAllowPast').checked = false;
+      needsClarification=false;lockControls();
       updatePastDates();
+      updateOccurrenceCount();
       try {persist();} catch {message('Draft storage is unavailable. Keep this page open.', true);}
     });
     wrapper.append(caption, control); card.appendChild(wrapper);
@@ -77,6 +128,13 @@
     byId('aiReview').hidden = !drafts.length;
     draftContainer.replaceChildren(); byId('aiWarnings').replaceChildren();
     warnings.forEach(text => {const item=document.createElement('li'); item.textContent=text; byId('aiWarnings').appendChild(item);});
+    if(dataLoaded){
+      try {
+        const proposed=TaskImport.uniqueTasks(drafts),existing=plannerSnapshot().tasks;
+        const clashes=proposed.filter(task=>task.time&&existing.some(row=>!row.completed&&row.date===task.date&&row.title.startsWith(task.time)&&row.title!==TaskImport.titleFor(task)));
+        if(clashes.length){const item=document.createElement('li');item.textContent=`${clashes.length} proposed task(s) share a start time with an unfinished checklist task. Please review; this is not a confirmed scheduling conflict.`;byId('aiWarnings').appendChild(item);}
+      }catch{}
+    }
     drafts.forEach((task,index) => {
       const card=document.createElement('fieldset'); card.className='ai-draft';
       const legend=document.createElement('legend'); legend.textContent='Task '+(index+1); card.appendChild(legend);
@@ -86,20 +144,39 @@
       field(card,task,'people','People (optional)','number');
       field(card,task,'category','Category','select');
       field(card,task,'description','Description','textarea',1200);
+      const repeat=document.createElement('label');repeat.className='ai-field';
+      const repeatLabel=document.createElement('span');repeatLabel.textContent='Repeat';
+      const frequency=document.createElement('select');
+      for(const [value,label] of [['none','Does not repeat'],['daily','Every day'],['weekly','Every week']]){const option=document.createElement('option');option.value=value;option.textContent=label;frequency.appendChild(option);}
+      frequency.value=task.repeat?.frequency||'none';repeat.append(repeatLabel,frequency);card.appendChild(repeat);
+      const end=document.createElement('label');end.className='ai-field';
+      const endLabel=document.createElement('span');endLabel.textContent='Repeat until (inclusive)';
+      const endDate=document.createElement('input');endDate.type='date';endDate.value=task.repeat?.endDate||'';endDate.min=task.date||'';
+      end.hidden=frequency.value==='none';endDate.required=frequency.value!=='none';end.append(endLabel,endDate);card.appendChild(end);
+      function updateRepeat(){task.repeat={frequency:frequency.value,endDate:frequency.value==='none'?null:endDate.value||null};end.hidden=frequency.value==='none';endDate.required=frequency.value!=='none';needsClarification=false;try{persist();}catch{}updateOccurrenceCount();lockControls();}
+      frequency.addEventListener('change',updateRepeat);endDate.addEventListener('input',updateRepeat);
       const remove=document.createElement('button'); remove.type='button'; remove.className='ai-remove'; remove.textContent='Remove task';
       remove.addEventListener('click',()=>{drafts.splice(index,1); renderDrafts(); try{persist();}catch{message('Could not save draft locally.',true);}});
       card.appendChild(remove); draftContainer.appendChild(card);
     });
-    updatePastDates(); lockControls();
+    updatePastDates(); updateOccurrenceCount(); lockControls();
   }
   function close() {if(busy) return; modal.classList.remove('show'); byId('openAiPlanner').focus();}
   byId('openAiPlanner').addEventListener('click', () => {
     if(!drafts.length) referenceWeek=getDateKey(weekStart);
     byId('aiWeekContext').textContent='Reference week starts '+referenceWeek.split('-').reverse().join('/')+'. Bare weekdays refer to this week. Dates use DD/MM/YY or DD/MM/YYYY.';
-    modal.classList.add('show'); renderDrafts();
+    modal.classList.add('show'); renderDrafts();renderConversation();
     (pendingRows ? byId('aiSave') : byId('aiText')).focus();
   });
   byId('closeAiPlanner').addEventListener('click',close);
+  byId('aiNewChat').addEventListener('click',()=>{
+    if(busy||pendingRows||!confirm('Start a new chat and discard this unsaved draft?'))return;
+    history=[];drafts=[];warnings=[];needsClarification=false;byId('aiText').value='';
+    try{sessionStorage.removeItem(chatStorageKey);sessionStorage.removeItem(storageKey);}catch{}
+    referenceWeek=getDateKey(weekStart);renderConversation();renderDrafts();message('New conversation started. Your saved checklist is unchanged.');
+  });
+  document.querySelectorAll('[data-ai-prompt]').forEach(button=>button.addEventListener('click',()=>{byId('aiText').value=button.dataset.aiPrompt;byId('aiText').focus();}));
+  byId('askPlanner').addEventListener('click',()=>{byId('openAiPlanner').click();byId('aiText').value='Review the selected week. What is unfinished, overdue or potentially conflicting?';byId('aiText').focus();});
   modal.addEventListener('click',event=>{if(event.target===modal) close();});
   modal.addEventListener('keydown',event=>{
     if(event.key==='Escape') close();
@@ -112,14 +189,15 @@
   });
   inputForm.addEventListener('submit',async event=>{
     event.preventDefault(); if(busy || pendingRows || !inputForm.reportValidity()) return;
-    if(drafts.length && !confirm('Replace the current unsaved draft?')) return;
+    if(!dataLoaded){message('Wait for the latest checklist to load before chatting.',true);return;}
+    const userMessage=byId('aiText').value;
     busy=true; lockControls(); message('Organising your message…');
     const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),30000);
     let rejectedCode = false;
     try {
       const response=await fetch('/api/plan-tasks',{method:'POST',signal:controller.signal,
         headers:{'Content-Type':'application/json','x-ai-access-code':byId('aiCode').value},
-        body:JSON.stringify({text:byId('aiText').value,weekStart:referenceWeek})});
+        body:JSON.stringify({text:userMessage,weekStart:referenceWeek,history,currentDraft:drafts,context:plannerSnapshot()})});
       let result; try{result=await response.json();}catch{throw Error('AI is unavailable on this site. Please check the deployment setup.');}
       let rememberNotice = '';
       // A quota error still means the server accepted the team's access code.
@@ -134,10 +212,14 @@
         throw Error(result.error || 'Could not organise tasks. Please try again.');
       }
       if(!Array.isArray(result.tasks) || result.tasks.length>30 || !Array.isArray(result.warnings) || result.warnings.some(w=>typeof w!=='string')) throw Error('Invalid plan. Please try again.');
-      drafts=result.tasks.map(task=>TaskImport.normalize(task,true)); warnings=result.warnings;
+      if(result.reply!==undefined&&(typeof result.reply!=='string'||result.reply.length>4000))throw Error('Invalid assistant reply. Please try again.');
+      if(result.draftMode!=='keep')drafts=result.tasks.map(task=>TaskImport.normalize(task,true));
+      warnings=result.warnings;needsClarification=result.needsClarification===true;
+      addConversation(userMessage,result.reply|| (drafts.length?'I have prepared your draft. Review it before adding the tasks.':warnings.join(' ')||'Could you give me a date and description?'));
+      byId('aiText').value='';
       persist(); renderDrafts();
-      message((drafts.length ? 'Review every date and detail below. Nothing has been added yet.' : warnings.join(' ') || 'No tasks found. Add dates and descriptions, then try again.') + rememberNotice);
-      if(drafts.length) byId('aiReviewTitle').scrollIntoView({block:'nearest',behavior:'smooth'});
+      message((needsClarification ? 'Please answer the question in the conversation, or correct the draft details.' : result.draftMode==='keep' ? 'Reply ready. Your saved checklist and unsaved draft are unchanged.' : drafts.length ? 'Review every date and detail below. Nothing has been added yet.' : warnings.join(' ') || 'No tasks found. Add dates and descriptions, then try again.') + rememberNotice);
+      if(drafts.length&&!needsClarification) byId('aiReviewTitle').scrollIntoView({block:'nearest',behavior:'smooth'});
     } catch(error){message(error.name==='AbortError' ? 'The request timed out. Nothing was added. Please try again.' : error.message,true);}
     finally{clearTimeout(timeout);busy=false;lockControls();if(rejectedCode)byId('aiCode').focus();}
   });
@@ -147,17 +229,18 @@
   });
   saveForm.addEventListener('submit',async event=>{
     event.preventDefault();
-    if(busy) return;
+    if(busy || needsClarification) return;
     if(dataBusy || !dataLoaded){message('Wait for the checklist to finish syncing, then try again.',true);return;}
     if(!saveForm.reportValidity()) return;
     if(updatePastDates() && !byId('aiAllowPast').checked){message('Please check and acknowledge the dates in the past.',true);return;}
+    let validatedTasks;
+    if(!pendingRows){try{validatedTasks=TaskImport.uniqueTasks(drafts);}catch(error){message(error.message,true);return;}}
     busy=true;lockControls();message('Saving your reviewed tasks…');
     let added=0, skipped=0;
     const success=await runDataOperation(async()=>{
       if(!pendingRows) {
         // IDs and data are persisted BEFORE any insert, so retries cannot duplicate this batch.
-        const unique=TaskImport.uniqueTasks(drafts);
-        pendingRows=unique.map(task=>TaskImport.toRow(task,RESTAURANT_ID,crypto.randomUUID()));
+        pendingRows=validatedTasks.map(task=>TaskImport.toRow(task,RESTAURANT_ID,crypto.randomUUID()));
         try{persist();}catch(error){pendingRows=null;throw Error('Draft storage is unavailable. Enable session storage before adding tasks.');}
       }
       const records=[], existingIds=new Set();
@@ -188,9 +271,10 @@
     },true);
     busy=false;
     if(success){
-      pendingRows=null;drafts=[];warnings=[];
+      pendingRows=null;drafts=[];warnings=[];needsClarification=false;
       try{sessionStorage.removeItem(storageKey);}catch{}
       renderDrafts();message(`${added} tasks added. ${skipped} already existed. Your checklist is ready.`);
+      addConversation(null,`${added} tasks were saved to the checklist. ${skipped} already existed and were skipped. The unsaved draft is now empty.`);
     } else {
       message(pendingRows ? 'Could not confirm the batch. Keep this draft and use Retry saving. Your message and task IDs have been preserved.' : 'Nothing was added. Check the task details and that session storage is available, then try again.',true);
       lockControls();
@@ -201,6 +285,7 @@
     if(saved && Array.isArray(saved.drafts) && saved.drafts.length<=30) {
       drafts=saved.drafts.map(task=>TaskImport.normalize(task,true)); warnings=Array.isArray(saved.warnings)?saved.warnings:[];
       referenceWeek=TaskImport.isDate(saved.referenceWeek)?saved.referenceWeek:getDateKey(weekStart);
+      needsClarification=saved.needsClarification===true;
       byId('aiText').value=typeof saved.text==='string'?saved.text:'';
       if(Array.isArray(saved.pendingRows) && saved.pendingRows.length && saved.pendingRows.length<=30) {
         pendingRows=saved.pendingRows.map(row=>{
@@ -211,4 +296,5 @@
       }
     }
   } catch{drafts=[];pendingRows=null;message('Could not restore the previous draft. Please start again.',true);}
+  renderConversation();renderBriefing();
 })();

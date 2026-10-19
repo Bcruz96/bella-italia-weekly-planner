@@ -29,7 +29,7 @@ function setup(options = {}) {
     document: { hidden: false, addEventListener() {}, createElement: tag => Object.assign(element(), {tagName:tag}),
       getElementById(id) { if (!elements.has(id)) elements.set(id,element()); return elements.get(id); } },
     supabase: { createClient: () => ({ from: () => ({ select: () => ({
-      eq: async () => ({data: [], error: null})
+      eq() {return this;}, order() {return this;}, range: async () => ({data: [], error: null})
     }) }) }) }
   });
   let source=fs.readFileSync('script.js','utf8');
@@ -222,4 +222,13 @@ test('real HTML defines every element required by app startup', () => {
   for(const match of script.matchAll(/document\.getElementById\("([^"]+)"\)/g)) {
     assert.ok(ids.has(match[1]),'Missing HTML element: '+match[1]);
   }
+});
+
+test('loading paginates beyond the database row limit',async()=>{
+  const {run}=setup();
+  run('var pageCalls=[]; database.from=table=>{const query={select(){return query},eq(){return query},order(){return query},async range(start,end){pageCalls.push({table,start});return {data:table==="manual_tasks"?Array.from({length:Math.max(0,Math.min(1201-start,end-start+1))},(_,i)=>({id:String(start+i),title:"Task "+(start+i),date_key:"2026-10-19",day:"Monday",category:"Weekly Tasks",completed:false})):[],error:null}}};return query};');
+  await run('loadDataFromSupabase()');
+  assert.equal(run('manualTasks.length'),1201);
+  assert.equal(run('manualTasks[1200].id'),'1200');
+  assert.equal(run('pageCalls.filter(call=>call.table==="manual_tasks").length'),3);
 });
