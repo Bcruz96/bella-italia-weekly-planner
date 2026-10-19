@@ -1,7 +1,23 @@
 const SUPABASE_URL = "https://snimrlbzcigltlcifneb.supabase.co";
 const SUPABASE_KEY = "sb_publishable_9_pd1IQnNYYRzDFT-TLJ_A_xWVzSxHr";
 
-const database = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Bound network waits so a stalled request cannot lock task controls indefinitely.
+async function fetchWithTimeout(input, options = {}) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timeout = setTimeout(abort, 15000);
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    return await fetch(input, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
+  }
+}
+const database = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  global: { fetch: fetchWithTimeout }
+});
 
 const RESTAURANT_ID = "bi-wellington-street";
 const daysContainer = document.getElementById("daysContainer");
@@ -428,8 +444,11 @@ async function runDataOperation(operation, saving = false) {
     return true;
   } catch (error) {
     console.error("Data operation failed:", error);
-    showError(saving ? "Could not save the change. Check your connection and try again."
-      : "Could not load the latest tasks. Sync will retry automatically.");
+    const reason = error?.message ? " Details: " + error.message : "";
+    showError(saving ? "Could not save the change. Please try again." + reason
+      : dataLoaded
+        ? "Could not refresh tasks. Check your connection. Sync will retry automatically."
+        : "Cannot connect to the task database. Task changes are unavailable until the connection is restored. Please check your connection and try again.");
     return false;
   } finally {
     dataBusy = false;

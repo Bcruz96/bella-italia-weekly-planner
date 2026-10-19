@@ -62,9 +62,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .progress-fill { width: 0; }
 .add-task-button { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 20px; border: 1px solid var(--green-main); border-radius: var(--radius-sm); background: var(--green-main); color: white; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .add-task-button:hover { background: var(--green-dark); border-color: var(--green-dark); }
-#taskGroups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 20px; }
+#taskGroups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .task-group { min-width: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
-.task-group:last-child:nth-child(odd) { grid-column: 1/-1; }
 .task-group-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; background: #fafcf9; border-bottom: 1px solid var(--border); }
 .task-group-header h3 { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .group-progress { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
@@ -105,7 +104,6 @@ input:focus, select:focus { border-color: var(--green-main); }
   .day-context-date { min-width: 170px; }
   .day-context-progress { flex: 1; }
   .add-task-button { margin-left: 0; }
-  #taskGroups { grid-template-columns: 1fr; gap: 16px; }
 }
 @media (max-width: 540px) {
   .app-header { padding: 16px; align-items: flex-start; gap: 10px; }

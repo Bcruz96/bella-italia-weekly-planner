@@ -18,12 +18,15 @@ function setup(options = {}) {
       addEventListener(k,fn) { this.listeners[k]=fn; }, focus() {}, reset() {},
       setCustomValidity(v) { this.validityMessage=v; },
       reportValidity() { return !elements.get('taskTitle').validityMessage; },
-      querySelector() { return this.child ||= element(); }, querySelectorAll() { return []; }
+      querySelector() { return this.child ||= element(); }, querySelectorAll(selector) {
+        const descendants = this.children.flatMap(child => [child, ...child.querySelectorAll('*')]);
+        return selector === 'button' ? descendants.filter(child => child.tagName === 'button') : descendants;
+      }
     };
   }
-  const ctx = vm.createContext({ Date: AppDate, console: { error() {} }, navigator: { onLine: true },
+  const ctx = vm.createContext({ AbortController, setTimeout, clearTimeout, fetch: options.fetch || fetch, Date: AppDate, console: { error() {} }, navigator: { onLine: true },
     confirm: () => true, setInterval() {}, window: { addEventListener() {} },
-    document: { hidden: false, addEventListener() {}, createElement: element,
+    document: { hidden: false, addEventListener() {}, createElement: tag => Object.assign(element(), {tagName:tag}),
       getElementById(id) { if (!elements.has(id)) elements.set(id,element()); return elements.get(id); } },
     supabase: { createClient: () => ({ from: () => ({ select: () => ({
       eq: async () => ({data: [], error: null})
@@ -143,4 +146,80 @@ test('reopening next day uses new date; Today updates an already open app', asyn
   const reopened = setup({now:'2026-10-26T00:00:01Z', bootstrap:true});
   assert.equal(reopened.run('getSelectedDateKey()'),'2026-10-26');
   await new Promise(resolve => setImmediate(resolve));
+});
+
+test('failed initial connection reports unavailable database and unlocks request state', async () => {
+  const {run,elements}=setup();
+  run('renderApp=renderBusyState; dataLoaded=false; loadDataFromSupabase=async () => {throw new TypeError("Failed to fetch")};');
+  await run('refreshLiveData()');
+  assert.equal(run('dataBusy'),false);
+  assert.equal(run('dataLoaded'),false);
+  assert.match(elements.get('appMessage').textContent,/Cannot connect to the task database/);
+  assert.equal(elements.get('syncStatus').dataset.state,'error');
+  assert.equal(elements.get('taskForm').child.disabled,true);
+  run('loadDataFromSupabase=async () => {dataLoaded=true};');
+  await run('refreshLiveData()');
+  assert.equal(elements.get('taskForm').child.disabled,false);
+  assert.equal(elements.get('syncStatus').dataset.state,'synced');
+});
+test('fixed completion can be checked and unchecked after successful writes', async () => {
+  const {run}=setup();
+  run('var writes=[]; saveFixedCompletion=async (id,completed,date) => {writes.push({id,completed,date})};');
+  await run('toggleTask("mon-payroll-1",true)');
+  assert.equal(run('fixedTaskCompletion[getSelectedDateKey()+"|mon-payroll-1"]'),true);
+  await run('toggleTask("mon-payroll-1",true)');
+  assert.equal(run('fixedTaskCompletion[getSelectedDateKey()+"|mon-payroll-1"]'),false);
+  assert.equal(run('writes.length'),2);
+});
+
+test('actual rendered checkbox invokes handler and becomes checked after save', async () => {
+  const {run,elements}=setup();
+  run('selectedDayIndex=0; var writes=0; saveFixedCompletion=async () => {writes++}; renderApp=() => {taskGroups.children=[]; renderTaskGroups(); renderBusyState()}; renderApp();');
+  let row=elements.get('taskGroups').children[0].children[0];
+  assert.equal(row.children[0].disabled,false);
+  row.children[0].listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(run('writes'),1);
+  row=elements.get('taskGroups').children[0].children[0];
+  assert.equal(row.children[0].attributes['aria-pressed'],'true');
+  row.children[0].listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  row=elements.get('taskGroups').children[0].children[0];
+  assert.equal(row.children[0].attributes['aria-pressed'],'false');
+});
+test('database permission errors are visible and controls recover', async () => {
+  const {run,elements}=setup();
+  run('selectedDayIndex=0; saveFixedCompletion=async () => {throw {code:"42501",message:"new row violates row-level security policy"}}; renderApp=() => {taskGroups.children=[]; renderTaskGroups(); renderBusyState()}; renderApp();');
+  elements.get('taskGroups').children[0].children[0].children[0].listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(elements.get('appMessage').textContent,/row-level security/);
+  const button=elements.get('taskGroups').children[0].children[0].children[0];
+  assert.equal(button.disabled,false);
+  assert.equal(button.attributes['aria-pressed'],'false');
+});
+test('manual completion survives a later successful reload', async () => {
+  const {run}=setup();
+  run('manualTasks=[{id:"manual",completed:false}]; var stored=false; updateManualTaskOnline=async (id,value) => {stored=value}; loadDataFromSupabase=async () => {manualTasks=[{id:"manual",completed:stored}]};');
+  await run('toggleTask("manual",false)');
+  await run('refreshLiveData()');
+  assert.equal(run('manualTasks[0].completed'),true);
+});
+test('network wrapper propagates cancellation without hanging', async () => {
+  const {run}=setup({fetch: async (input,options) => {
+    if(options.signal.aborted) throw new DOMException('Aborted','AbortError');
+    return new Promise((resolve,reject) => options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));
+  }});
+  run('var requestAbort=new AbortController();');
+  const pending=run('fetchWithTimeout("https://example.invalid",{signal:requestAbort.signal})');
+  run('requestAbort.abort()');
+  await assert.rejects(pending,{name:'AbortError'});
+});
+
+test('real HTML defines every element required by app startup', () => {
+  const html=fs.readFileSync('index.html','utf8');
+  const script=fs.readFileSync('script.js','utf8');
+  const ids=new Set([...html.matchAll(/id="([^"]+)"/g)].map(match=>match[1]));
+  for(const match of script.matchAll(/document\.getElementById\("([^"]+)"\)/g)) {
+    assert.ok(ids.has(match[1]),'Missing HTML element: '+match[1]);
+  }
 });
