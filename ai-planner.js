@@ -4,7 +4,36 @@
   const modal = byId('aiModal'), inputForm = byId('aiPlanForm'), saveForm = byId('aiSaveForm');
   const status = byId('aiStatus'), draftContainer = byId('aiDrafts');
   const storageKey = 'bella-ai-draft-v1';
+  const accessStorageKey = 'bella-ai-access-v1';
   let drafts = [], warnings = [], pendingRows = null, busy = false, referenceWeek = '';
+  function showRememberedCode(remembered) {
+    byId('aiCodeEntry').hidden = remembered;
+    byId('aiCodeSaved').hidden = !remembered;
+  }
+  function forgetCode() {
+    try { localStorage.removeItem(accessStorageKey); } catch {}
+    byId('aiCode').value = '';
+    byId('aiRememberCode').checked = false;
+    showRememberedCode(false);
+  }
+  try {
+    const remembered = localStorage.getItem(accessStorageKey);
+    if (remembered && remembered.length >= 12 && remembered.length <= 256) {
+      byId('aiCode').value = remembered;
+      byId('aiRememberCode').checked = true;
+      showRememberedCode(true);
+    }
+  } catch {}
+  byId('aiForgetCode').addEventListener('click', () => {
+    if (busy) return;
+    forgetCode();
+    byId('aiCode').focus();
+  });
+  byId('aiRememberCode').addEventListener('change', () => {
+    if (!byId('aiRememberCode').checked) {
+      try { localStorage.removeItem(accessStorageKey); } catch {}
+    }
+  });
   function message(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function persist() {
     sessionStorage.setItem(storageKey, JSON.stringify({drafts, warnings, pendingRows, referenceWeek, text:byId('aiText').value}));
@@ -86,19 +115,30 @@
     if(drafts.length && !confirm('Replace the current unsaved draft?')) return;
     busy=true; lockControls(); message('Organising your message…');
     const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),30000);
+    let rejectedCode = false;
     try {
       const response=await fetch('/api/plan-tasks',{method:'POST',signal:controller.signal,
         headers:{'Content-Type':'application/json','x-ai-access-code':byId('aiCode').value},
         body:JSON.stringify({text:byId('aiText').value,weekStart:referenceWeek})});
       let result; try{result=await response.json();}catch{throw Error('AI is unavailable on this site. Please check the deployment setup.');}
-      if(!response.ok) throw Error(result.error || 'Could not organise tasks. Please try again.');
+      if(!response.ok) {
+        if(response.status === 401) { forgetCode(); rejectedCode = true; }
+        throw Error(result.error || 'Could not organise tasks. Please try again.');
+      }
       if(!Array.isArray(result.tasks) || result.tasks.length>30 || !Array.isArray(result.warnings) || result.warnings.some(w=>typeof w!=='string')) throw Error('Invalid plan. Please try again.');
       drafts=result.tasks.map(task=>TaskImport.normalize(task,true)); warnings=result.warnings;
+      let rememberNotice = '';
+      if (byId('aiRememberCode').checked) {
+        try {
+          localStorage.setItem(accessStorageKey, byId('aiCode').value);
+          showRememberedCode(true);
+        } catch { rememberNotice = ' Your browser could not remember the code; it is available for this visit only.'; }
+      }
       persist(); renderDrafts();
-      message(drafts.length ? 'Review every date and detail below. Nothing has been added yet.' : warnings.join(' ') || 'No tasks found. Add dates and descriptions, then try again.');
+      message((drafts.length ? 'Review every date and detail below. Nothing has been added yet.' : warnings.join(' ') || 'No tasks found. Add dates and descriptions, then try again.') + rememberNotice);
       if(drafts.length) byId('aiReviewTitle').scrollIntoView({block:'nearest',behavior:'smooth'});
     } catch(error){message(error.name==='AbortError' ? 'The request timed out. Nothing was added. Please try again.' : error.message,true);}
-    finally{clearTimeout(timeout);busy=false;lockControls();}
+    finally{clearTimeout(timeout);busy=false;lockControls();if(rejectedCode)byId('aiCode').focus();}
   });
   byId('aiDiscard').addEventListener('click',()=>{
     if(busy || pendingRows || !confirm('Discard these unsaved tasks?')) return;

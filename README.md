@@ -31,7 +31,7 @@ Time, people and description are included in the saved task text so the existing
 
 Do not commit `.env` files or put the OpenAI key in HTML, browser JavaScript, or the access-code field. `.env.example` lists variable names only. The endpoint requires the team access code for every request, and the OpenAI key for free-form planning, checks the team code before calling OpenAI, bounds message/output size, uses a 25-second upstream timeout, and does not return the secret or raw upstream errors.
 
-For free-form messages, only the typed message and date context are sent to OpenAI; the checklist history is not sent. Requests use `store: false`. The team code is held only in the form in memory. The text and draft are preserved in session storage in the same browser tab, and removed after a confirmed save or discard.
+For free-form messages, only the typed message and date context are sent to OpenAI; the checklist history is not sent. Requests use `store: false`. The team code is held in memory by default. If you tick **Remember on this device**, a successfully accepted code is stored in this browser's local storage and reused on later visits. Choose **Forget code** to remove it; a rejected code is automatically removed so you can enter a replacement. The OpenAI API key is never stored in the browser. The text and draft are preserved in session storage in the same browser tab, and removed after a confirmed save or discard.
 
 ### Avoiding duplicate saves
 

@@ -30,11 +30,12 @@ async function setup(t, options={}) {
   w.console.error=()=>{};
   w.fetch=async()=>({ok:true,json:async()=>({tasks:options.tasks || [base()],warnings:options.warnings || []})});
   if(options.draft)w.sessionStorage.setItem('bella-ai-draft-v1',options.draft);
+  if(options.remembered)w.localStorage.setItem('bella-ai-access-v1',options.remembered);
   const run=code=>vm.runInContext(code,dom.getInternalVMContext());
   for(const file of ['script.js','lib/task-import.js','ai-planner.js'])run(fs.readFileSync(file,'utf8'));
   await settle();
   const get=id=>w.document.getElementById(id);
-  get('openAiPlanner').click();get('aiCode').value='team-code';get('aiText').value='My weekly tasks';
+  get('openAiPlanner').click();if(!options.remembered)get('aiCode').value='team-code';get('aiText').value='My weekly tasks';
   async function generate(){get('aiPlanForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();}
   async function save(){get('aiSaveForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();}
   return {w,get,run,store,generate,save,inserts:()=>inserts};
@@ -99,4 +100,49 @@ test('unconfigured AI service leaves checklist and draft untouched',async t=>{
   await app.generate();assert.match(app.get('aiStatus').textContent,/not configured/);
   assert.equal(app.store.manual_tasks.length,0);
   assert.equal(app.get('aiGenerate').disabled,false);
+});
+
+test('remembering the team code is opt-in and restores it after reopening',async t=>{
+  const app=await setup(t);await app.generate();
+  assert.equal(app.w.localStorage.getItem('bella-ai-access-v1'),null);
+  app.get('aiCode').value='test-team-code-123';app.get('aiRememberCode').checked=true;
+  await app.generate();
+  assert.equal(app.w.localStorage.getItem('bella-ai-access-v1'),'test-team-code-123');
+  assert.equal(app.get('aiCodeEntry').hidden,true);
+  const restored=await setup(t,{remembered:app.w.localStorage.getItem('bella-ai-access-v1')});
+  assert.equal(restored.get('aiCode').value,'test-team-code-123');
+  assert.equal(restored.get('aiCodeSaved').hidden,false);
+  let sentCode;
+  restored.w.fetch=async(url,options)=>{sentCode=options.headers['x-ai-access-code'];return {ok:true,json:async()=>({tasks:[base()],warnings:[]})};};
+  await restored.generate();assert.equal(sentCode,'test-team-code-123');
+});
+test('Forget code removes it from this device and reveals the input',async t=>{
+  const app=await setup(t,{remembered:'test-team-code-123'});
+  app.get('aiForgetCode').click();
+  assert.equal(app.w.localStorage.getItem('bella-ai-access-v1'),null);
+  assert.equal(app.get('aiCode').value,'');
+  assert.equal(app.get('aiCodeEntry').hidden,false);
+  assert.equal(app.get('aiRememberCode').checked,false);
+  assert.equal(app.w.document.activeElement,app.get('aiCode'));
+});
+test('an invalid remembered code is cleared and a replacement can be entered',async t=>{
+  const app=await setup(t,{remembered:'old-team-code-123'});
+  app.w.fetch=async()=>({ok:false,status:401,json:async()=>({error:'Enter the correct team access code.'})});
+  await app.generate();
+  assert.equal(app.w.localStorage.getItem('bella-ai-access-v1'),null);
+  assert.equal(app.get('aiCodeEntry').hidden,false);
+  assert.equal(app.get('aiCode').value,'');
+  assert.equal(app.get('aiCode').disabled,false);
+  assert.equal(app.w.document.activeElement,app.get('aiCode'));
+  assert.equal(app.store.manual_tasks.length,0);
+});
+test('blocked persistent storage does not prevent planning tasks',async t=>{
+  const app=await setup(t);
+  app.get('aiRememberCode').checked=true;
+  const original=app.w.Storage.prototype.setItem;
+  app.w.Storage.prototype.setItem=function(key,value){if(key==='bella-ai-access-v1')throw Error('Blocked');return original.call(this,key,value);};
+  await app.generate();
+  assert.equal(app.get('aiReview').hidden,false);
+  assert.match(app.get('aiStatus').textContent,/could not remember/);
+  assert.equal(app.get('aiCodeEntry').hidden,false);
 });

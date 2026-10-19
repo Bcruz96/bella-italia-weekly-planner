@@ -148,6 +148,11 @@ input:focus, select:focus { border-color: var(--green-main); }
 .task-actions .add-task-button { margin-left:0; }
 .ai-task-button { min-height:44px; padding:10px 16px; border:1px solid var(--border); border-radius:var(--radius-sm); background:white; color:var(--green-main); font-size:13px; font-weight:600; white-space:nowrap; }
 .ai-task-button:hover { background:var(--green-tint); border-color:#b9cfc0; }
+.ai-code-entry { display:grid; gap:10px; }
+.ai-remember { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-muted); }
+.ai-remember input { width:16px; min-height:16px; margin:0; }
+.ai-code-saved { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:10px 12px; background:var(--green-tint); border-radius:var(--radius-sm); color:var(--green-dark); font-size:12px; }
+.ai-code-saved button { padding:6px; border:0; background:transparent; color:var(--green-main); text-decoration:underline; font-size:12px; }
 .ai-modal-content { width:min(100%,740px); }
 .ai-heading { display:flex; align-items:flex-start; gap:20px; justify-content:space-between; }
 .ai-close { flex-shrink:0; width:36px; height:36px; border:0; background:var(--cream); border-radius:8px; font-size:24px; color:var(--text-muted); }

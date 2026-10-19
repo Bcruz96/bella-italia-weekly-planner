@@ -140,8 +140,15 @@
       <div class="ai-heading"><div><h2 id="aiTitle">Plan with AI</h2><p class="modal-description">Write it once. Review the dates, then add your tasks together.</p></div><button type="button" class="ai-close" id="closeAiPlanner" aria-label="Close AI planner">&times;</button></div>
       <p id="aiStatus" class="ai-status" role="status" aria-live="polite"></p>
       <form id="aiPlanForm">
-        <label class="field-label" for="aiCode">Team access code</label>
-        <input id="aiCode" type="password" autocomplete="off" maxlength="256" placeholder="Your team's AI code" required>
+        <div id="aiCodeEntry" class="ai-code-entry">
+          <label class="field-label" for="aiCode">Team access code</label>
+          <input id="aiCode" type="password" autocomplete="off" maxlength="256" placeholder="Your team's AI code" required>
+          <label class="ai-remember"><input type="checkbox" id="aiRememberCode"> Remember on this device</label>
+        </div>
+        <div id="aiCodeSaved" class="ai-code-saved" hidden>
+          <span>Access code remembered on this device.</span>
+          <button type="button" id="aiForgetCode">Forget code</button>
+        </div>
         <label class="field-label" for="aiText">What needs doing?</label>
         <textarea id="aiText" rows="5" maxlength="6000" required placeholder="25/10/26 grpo sales 25 px at 19:30 Fish Chips - Brownie"></textarea>
         <p class="ai-hint" id="aiWeekContext"></p>
